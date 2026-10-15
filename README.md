@@ -2,32 +2,22 @@
 
 桌面工具：从**头部 / 中部 / 尾部**素材池中随机组合，批量生成多条拼接视频。支持混合格式输入、水印、压缩与重复帧清理。目标平台：**macOS、Windows**。
 
-## 下载
+## 安装
 
-在 GitHub [Releases](https://github.com/4NaNBo1/VideoCombining/releases) 下载对应平台安装包：
+**推荐**：从 [GitHub Releases 发布页](https://github.com/4NaNBo1/VideoCombining/releases) 下载最新版安装包。打包版已内置 ffmpeg / ffprobe，**无需安装 Python 或 FFmpeg**。
 
-- **macOS**：`VideoCombining-vX.Y.Z-macOS.dmg`（打开后拖入「应用程序」）
-- **Windows**：`VideoCombining-vX.Y.Z-Windows.exe`（单文件，可直接运行）
 
-打包版已内置 ffmpeg / ffprobe，无需单独安装。
+| 平台          | 安装包                                 | 安装方式               |
+| ----------- | ----------------------------------- | ------------------ |
+| **macOS**   | `VideoCombining-vX.Y.Z-macOS.dmg`   | 打开 DMG，将应用拖入「应用程序」 |
+| **Windows** | `VideoCombining-vX.Y.Z-Windows.exe` | 下载后直接运行（单文件）       |
 
-## 发布（维护者）
 
-推送 `v*` 标签后，GitHub Actions 会在 macOS / Windows 上分别构建并创建 Release，附件为 **DMG** 与 **单文件 EXE**：
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-## 环境要求
-
-- **Python 3.10+**（从源码运行时）
-- **FFmpeg**：打包版若内置 `bin/ffmpeg`、`bin/ffprobe` 则自动使用；开发环境未配置 `bin/` 时，会回退到 `imageio-ffmpeg` 自带的 ffmpeg（通常不含 ffprobe，元数据解析能力较弱）
-
-## 安装与启动
+在发布页的 **Assets** 中选择与你系统对应的附件即可。
 
 ### 从源码运行（开发）
+
+需 **Python 3.10+**。FFmpeg：项目 `bin/` 下有 `ffmpeg`、`ffprobe` 时会优先使用；否则回退到 `imageio-ffmpeg` 自带的 ffmpeg（通常不含 ffprobe，元数据解析能力较弱）。
 
 在项目根目录：
 
@@ -40,14 +30,18 @@ python run.py
 
 等价命令：`python -m app.main`
 
-### 使用已打包程序
+### 自行打包
 
-- **macOS**：打开 `dist/VideoCombining.app`
-- **Windows**：运行 `dist/VideoCombining/VideoCombining.exe`
+本地构建产物路径：
 
-自行打包步骤见 [app/packaging.md](app/packaging.md)。
+- **macOS**：`dist/VideoCombining.app`
+- **Windows**：`dist/VideoCombining/VideoCombining.exe`
+
+步骤见 [app/packaging.md](app/packaging.md)。
 
 ## 使用说明
+
+
 
 ### 1. 添加素材
 
@@ -59,11 +53,13 @@ python run.py
 
 **取用规则（与界面一致）：**
 
-| 区段 | 每片取用数量 |
-|------|----------------|
-| 头部 | 有列表则固定 **1** 段；列表为空则不用头部 |
-| 中部 | 由「中部/片」数值设定；列表为空则整段中部跳过 |
-| 尾部 | 由「尾部/片」数值设定；**必须**有尾部素材且数量足够 |
+
+| 区段  | 每片取用数量                       |
+| --- | ---------------------------- |
+| 头部  | 有列表则固定 **1** 段；列表为空则不用头部     |
+| 中部  | 由「中部/片」数值设定；列表为空则整段中部跳过      |
+| 尾部  | 由「尾部/片」数值设定；**必须**有尾部素材且数量足够 |
+
 
 头、中、尾至少有一段参与合成（三者不能全为空且取用数为 0）。
 
@@ -72,6 +68,8 @@ python run.py
 - **中部/片、尾部/片**：每条输出视频从中部、尾部列表里各随机抽取的段数（不重复排列组合）。
 - **生成数量**：要生成的视频条数；每条的组合顺序随机，且在同一次任务内尽量不重复。
 - **最大不重复组合**：由当前列表长度与上述取用数自动计算；若请求数量超过上限，任务会在用尽组合后停止并提示。
+
+
 
 ### 3. 命名与输出
 
@@ -88,6 +86,8 @@ python run.py
 - **输出格式**：mp4、mov、mkv。
 - **重复帧清理**：开启后使用 ffmpeg `mpdecimate` 丢弃连续重复帧，减轻同质化观感。
 
+
+
 ### 5. 水印（可选）
 
 - 选择 PNG / JPG / WebP 等图片。
@@ -102,14 +102,20 @@ python run.py
 - 界面底部 **运行日志** 显示 ffmpeg 版本、命令与进度；**复制日志** 可整段复制，便于反馈问题。
 - 每次任务还会在**输出目录**写入 `build_YYYYMMDD_HHMMSS.log`，内容与界面日志类似。
 
+
+
 ## 常见问题
 
-| 现象 | 建议 |
-|------|------|
-| 提示未选择输出目录或目录不可写 | 重新选择有写权限的文件夹 |
-| 提示素材数量不足 | 增加该列表文件数，或降低「中部/片」「尾部/片」 |
-| 启动后日志无 ffmpeg 版本信息 | 安装 FFmpeg 或将可执行文件放入项目 `bin/`（见 [app/packaging.md](app/packaging.md)） |
-| 生成失败 | 复制界面日志或输出目录中的 `build_*.log` 发给维护者 |
+
+| 现象                 | 建议                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| 提示未选择输出目录或目录不可写    | 重新选择有写权限的文件夹                                                                          |
+| 提示素材数量不足           | 增加该列表文件数，或降低「中部/片」「尾部/片」                                                              |
+| 启动后日志无 ffmpeg 版本信息 | 发布版一般不会出现；从源码运行时请安装 FFmpeg 或将可执行文件放入项目 `bin/`（见 [app/packaging.md](app/packaging.md)） |
+| 生成失败               | 复制界面日志或输出目录中的 `build_*.log` 发给维护者                                                     |
+
+
+
 
 ## 项目结构（简要）
 
@@ -120,5 +126,3 @@ VideoCombining/
   bin/                # 可选：内置 ffmpeg / ffprobe
   requirements.txt
 ```
-
-设计说明见 [视频拼接软件设计.md](视频拼接软件设计.md)。
