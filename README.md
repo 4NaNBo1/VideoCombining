@@ -15,6 +15,17 @@
 
 在发布页的 **Assets** 中选择与你系统对应的附件即可。
 
+### macOS 打开异常
+
+若提示「Apple 无法验证 "VideoCombining"…」或无法打开应用（发布包未做 Apple 公证，属常见情况）：
+
+1. 将 `VideoCombining.app` 放入「应用程序」文件夹。
+2. 在终端执行：
+
+```bash
+xattr -cr /Applications/VideoCombining.app
+```
+
 ### 从源码运行（开发）
 
 需 **Python 3.10+**。FFmpeg：项目 `bin/` 下有 `ffmpeg`、`ffprobe` 时会优先使用；否则回退到 `imageio-ffmpeg` 自带的 ffmpeg（通常不含 ffprobe，元数据解析能力较弱）。
@@ -109,6 +120,7 @@ python run.py
 
 | 现象                 | 建议                                                                                    |
 | ------------------ | ------------------------------------------------------------------------------------- |
+| macOS 无法验证开发者、打不开   | 见上文 [macOS 打开异常](#macos-打开异常)                                                         |
 | 提示未选择输出目录或目录不可写    | 重新选择有写权限的文件夹                                                                          |
 | 提示素材数量不足           | 增加该列表文件数，或降低「中部/片」「尾部/片」                                                              |
 | 启动后日志无 ffmpeg 版本信息 | 发布版一般不会出现；从源码运行时请安装 FFmpeg 或将可执行文件放入项目 `bin/`（见 [app/packaging.md](app/packaging.md)） |
