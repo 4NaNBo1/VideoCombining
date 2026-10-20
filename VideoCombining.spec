@@ -1,20 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller：macOS → .app；Windows → 单文件 .exe。"""
+"""PyInstaller：macOS → .app；Windows → 单文件 .exe。
+
+PySide6 不整体收集：PyInstaller 的 hook 会按实际导入（QtCore/QtGui/QtWidgets）
+带上对应 DLL 与插件，避免把 Qt3D/WebEngine 等无关模块打进安装包。
+"""
 
 import platform
 
-from PyInstaller.utils.hooks import collect_all
-
 block_cipher = None
-
-pyside_datas, pyside_binaries, pyside_hidden = collect_all("PySide6")
 
 a = Analysis(
     ["run.py"],
     pathex=[],
-    binaries=pyside_binaries,
-    datas=[("bin", "bin")] + pyside_datas,
-    hiddenimports=pyside_hidden,
+    binaries=[],
+    datas=[("bin", "bin")],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -31,7 +31,7 @@ _exe_kw = dict(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -67,7 +67,7 @@ elif platform.system() == "Darwin":
         a.zipfiles,
         a.datas,
         strip=False,
-        upx=True,
+        upx=False,
         upx_exclude=[],
         name="VideoCombining",
     )
@@ -97,7 +97,7 @@ else:
         a.zipfiles,
         a.datas,
         strip=False,
-        upx=True,
+        upx=False,
         upx_exclude=[],
         name="VideoCombining",
     )
