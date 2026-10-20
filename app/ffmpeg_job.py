@@ -9,7 +9,7 @@ from typing import Callable
 
 from app.combo import ComboSpec
 
-ProgressFn = Callable[[int, int, str], None]
+ProgressFn = Callable[[float, int, str], None]
 from app.ffmpeg_util import CmdCancelled, ffmpeg_path, probe_video, run_cmd
 
 
@@ -97,13 +97,22 @@ def _check_cancel(should_cancel: Callable[[], bool] | None) -> None:
         raise BuildCancelled()
 
 
+def _failure_detail(cp) -> str:
+    stderr = (cp.stderr or "").strip()
+    if len(stderr) > 1500:
+        stderr = "…（已省略前半段）…\n" + stderr[-1500:]
+    return f"ffmpeg 退出码 {cp.returncode}\n{stderr}"
+
+
 def normalize_segment(
     src: str,
     dst: str,
     w: int,
     h: int,
     *,
+    duration: float | None = None,
     log: callable | None = None,
+    on_progress: Callable[[float], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> None:
     ff = ffmpeg_path()
@@ -111,6 +120,10 @@ def normalize_segment(
     args = [
         ff,
         "-y",
+        "-nostdin",
+        "-progress",
+        "pipe:1",
+        "-nostats",
         "-i",
         src,
         "-vf",
@@ -132,11 +145,17 @@ def normalize_segment(
         dst,
     ]
     try:
-        cp = run_cmd(args, log=log, should_cancel=should_cancel)
+        cp = run_cmd(
+            args,
+            log=log,
+            should_cancel=should_cancel,
+            on_progress=on_progress,
+            duration=duration,
+        )
     except CmdCancelled:
         raise BuildCancelled() from None
     if cp.returncode != 0:
-        raise RuntimeError(f"归一化失败 {src}:\n{cp.stderr}")
+        raise RuntimeError(f"归一化失败 {src}:\n{_failure_detail(cp)}")
 
 
 def build_output(
@@ -162,11 +181,36 @@ def build_output(
     tmp = tmp_ctx.name
     norm_files: list[str] = []
     step_total = len(segments) + 2
+    duration_cache: dict[str, float | None] = {}
+
+    def duration_of(path: str) -> float | None:
+        if path not in duration_cache:
+            duration_cache[path] = probe_video(path).get("duration")
+        return duration_cache[path]
+
     try:
         for i, seg in enumerate(segments):
             _check_cancel(should_cancel)
             out = os.path.join(tmp, f"seg_{i:03d}.mp4")
-            normalize_segment(seg, out, w, h, log=log, should_cancel=should_cancel)
+
+            def seg_progress(fraction: float, *, index: int = i) -> None:
+                if progress:
+                    progress(
+                        index + fraction,
+                        step_total,
+                        f"归一化片段 {index + 1}/{len(segments)}",
+                    )
+
+            normalize_segment(
+                seg,
+                out,
+                w,
+                h,
+                duration=duration_of(seg),
+                log=log,
+                on_progress=seg_progress,
+                should_cancel=should_cancel,
+            )
             norm_files.append(out)
             if progress:
                 progress(
@@ -189,6 +233,7 @@ def build_output(
                 [
                     ff,
                     "-y",
+                    "-nostdin",
                     "-f",
                     "concat",
                     "-safe",
@@ -205,13 +250,13 @@ def build_output(
         except CmdCancelled:
             raise BuildCancelled() from None
         if cp.returncode != 0:
-            raise RuntimeError(f"concat 失败:\n{cp.stderr}")
+            raise RuntimeError(f"concat 失败:\n{_failure_detail(cp)}")
         if progress:
             progress(len(segments) + 1, step_total, "拼接片段")
 
         wm = settings.watermark_path
         opacity = max(0.0, min(1.0, settings.watermark_opacity))
-        args = [ff, "-y", "-i", concat_out]
+        args = [ff, "-y", "-nostdin", "-progress", "pipe:1", "-nostats", "-i", concat_out]
         fc_lines: list[str] = []
         vlabel = "[0:v]"
 
@@ -244,12 +289,27 @@ def build_output(
         args += vcodec + ["-c:a", "aac", "-b:a", "128k", output_path]
 
         _check_cancel(should_cancel)
+
+        def encode_progress(fraction: float) -> None:
+            if progress:
+                progress(
+                    len(segments) + 1 + fraction,
+                    step_total,
+                    "编码输出",
+                )
+
         try:
-            cp = run_cmd(args, log=log, should_cancel=should_cancel)
+            cp = run_cmd(
+                args,
+                log=log,
+                should_cancel=should_cancel,
+                on_progress=encode_progress,
+                duration=duration_of(concat_out),
+            )
         except CmdCancelled:
             raise BuildCancelled() from None
         if cp.returncode != 0:
-            raise RuntimeError(f"输出编码失败:\n{cp.stderr}")
+            raise RuntimeError(f"输出编码失败:\n{_failure_detail(cp)}")
         if progress:
             progress(step_total, step_total, "编码输出")
     finally:

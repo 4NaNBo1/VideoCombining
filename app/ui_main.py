@@ -391,7 +391,7 @@ class GenerateWorker(QThread):
             total = len(combos)
             done = 0
 
-            def on_step(video_index: int, name: str, step: int, step_total: int, phase: str) -> None:
+            def on_step(video_index: int, name: str, step: float, step_total: int, phase: str) -> None:
                 overall = ((video_index - 1) + step / step_total) / total
                 pct = min(99, int(overall * 100))
                 self.progress.emit(pct, f"第 {video_index}/{total} 个 · {name} · {phase}")
@@ -1117,6 +1117,7 @@ class MainWindow(QMainWindow):
 
     def _on_progress_cancel(self) -> None:
         if self._worker and self._worker.isRunning():
+            self._append_log("收到取消请求，正在停止当前编码…")
             self._worker.request_cancel()
             if self._progress_dlg is not None:
                 self._progress_dlg.setLabelText("正在取消，正在停止当前编码…")

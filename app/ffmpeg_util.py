@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -14,6 +15,68 @@ from typing import Callable
 
 class CmdCancelled(Exception):
     """subprocess 被用户取消终止。"""
+
+
+ProgressFraction = Callable[[float], None]
+
+
+def _hidden_process_kwargs() -> dict:
+    """GUI 进程启动控制台程序时，阻止 Windows 新建控制台窗口。"""
+    if os.name != "nt":
+        return {}
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    return {"startupinfo": si, "creationflags": subprocess.CREATE_NO_WINDOW}
+
+
+def _progress_seconds(line: str) -> float | None:
+    """解析 ffmpeg -progress 输出（out_time_us 实为微秒）。"""
+    key, sep, value = line.partition("=")
+    value = value.strip()
+    if not sep or not value or value == "N/A":
+        return None
+    if key in ("out_time_us", "out_time_ms"):
+        try:
+            return int(value) / 1_000_000
+        except ValueError:
+            return None
+    if key == "out_time":
+        m = re.match(r"(\d+):(\d+):(\d+(?:\.\d+)?)$", value)
+        if m:
+            return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    return None
+
+
+class _LineReader:
+    """后台读取子进程输出，避免长任务写满管道缓冲区后卡死。"""
+
+    def __init__(self, stream, on_line: Callable[[str], None] | None = None):
+        self._stream = stream
+        self._on_line = on_line
+        self.lines: list[str] = []
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self) -> None:
+        self._thread.join()
+
+    def _run(self) -> None:
+        try:
+            for line in self._stream:
+                self.lines.append(line)
+                if self._on_line is not None:
+                    try:
+                        self._on_line(line.rstrip("\r\n"))
+                    except Exception:
+                        pass
+        finally:
+            try:
+                self._stream.close()
+            except Exception:
+                pass
 
 
 def _bundle_bin_dir() -> Path | None:
@@ -75,41 +138,75 @@ def run_cmd(
     *,
     log: callable | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    on_progress: ProgressFraction | None = None,
+    duration: float | None = None,
 ) -> subprocess.CompletedProcess:
     line = " ".join(_quote(a) for a in args)
     if log:
         log(line)
+    hidden = _hidden_process_kwargs()
     if not should_cancel:
         return subprocess.run(
             args,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
+            **hidden,
         )
+
+    on_stdout: Callable[[str], None] | None = None
+    if on_progress is not None and duration and duration > 0:
+        last = -1.0
+
+        def on_stdout(text: str) -> None:
+            nonlocal last
+            seconds = _progress_seconds(text)
+            if seconds is None:
+                return
+            fraction = max(0.0, min(1.0, seconds / duration))
+            if fraction != last:
+                last = fraction
+                on_progress(fraction)
 
     proc = subprocess.Popen(
         args,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
+        **hidden,
     )
-    while True:
-        if should_cancel():
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            raise CmdCancelled()
-        if proc.poll() is not None:
-            break
-        time.sleep(0.25)
-    stdout, stderr = proc.communicate()
-    return subprocess.CompletedProcess(args, proc.returncode or 0, stdout, stderr)
+    out_reader = _LineReader(proc.stdout, on_stdout)
+    err_reader = _LineReader(proc.stderr)
+    out_reader.start()
+    err_reader.start()
+    try:
+        while proc.poll() is None:
+            if should_cancel():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                raise CmdCancelled()
+            time.sleep(0.1)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        out_reader.join()
+        err_reader.join()
+    return subprocess.CompletedProcess(
+        args,
+        proc.returncode or 0,
+        "".join(out_reader.lines),
+        "".join(err_reader.lines),
+    )
 
 
 def _quote(s: str) -> str:
